@@ -836,17 +836,59 @@ body {font-family:'Rajdhani',sans-serif;background:var(--dark);color:#e0e0e0;min
     let state = { year: 2026, events: [], panelDay: null, panelMonth: null };
     let reservaSlots = {}, estiloSelecionado = '', tipoJogoSelecionado = '', stepAtual = 1, reservaContext = null;
 
-    function load() { try { const r = localStorage.getItem('proarena_reservas'); if (r) { const s = JSON.parse(r); state.events = s.events || []; if (s.year) state.year = s.year; if (s.reservas) reservaSlots = s.reservas; } } catch(e) {} }
-    function save() { try { localStorage.setItem('proarena_reservas', JSON.stringify({ events: state.events, year: state.year, reservas: reservaSlots })); } catch(e) {} }
+    function load() {
+        console.log('[DEBUG load] Iniciando carregamento do localStorage');
+        try {
+            const r = localStorage.getItem('proarena_reservas');
+            console.log('[DEBUG load] Chave proarena_reservas existe?', !!r);
+            if (r) {
+                const s = JSON.parse(r);
+                state.events = s.events || [];
+                if (s.year) state.year = s.year;
+                if (s.reservas) {
+                    reservaSlots = s.reservas;
+                    console.log('[DEBUG load] reservaSlots carregados:', Object.keys(reservaSlots).length, 'reservas');
+                    console.log('[DEBUG load] Chaves:', Object.keys(reservaSlots));
+                } else {
+                    console.log('[DEBUG load] NENHUMA reserva encontrada no JSON');
+                    reservaSlots = {};
+                }
+            } else {
+                console.log('[DEBUG load] NENHUM dado salvo no localStorage (proarena_reservas = null)');
+                reservaSlots = {};
+            }
+        } catch(e) {
+            console.error('[DEBUG load] ERRO ao carregar:', e);
+            reservaSlots = {};
+        }
+    }
+    function save() {
+        try {
+            const data = { events: state.events, year: state.year, reservas: reservaSlots };
+            console.log('[DEBUG save] Salvando reservas:', Object.keys(reservaSlots).length, 'itens');
+            console.log('[DEBUG save] Chaves:', Object.keys(reservaSlots));
+            localStorage.setItem('proarena_reservas', JSON.stringify(data));
+            // Verifica se salvou corretamente
+            const verificado = localStorage.getItem('proarena_reservas');
+            const parsed = JSON.parse(verificado);
+            console.log('[DEBUG save] Verificação pós-salvamento:', Object.keys(parsed.reservas||{}).length, 'reservas');
+        } catch(e) {
+            console.error('[DEBUG save] ERRO ao salvar:', e);
+        }
+    }
     function toast(msg, t = 'success') { const c = document.getElementById('toastContainer'); const e = document.createElement('div'); e.className = `toast ${t}`; e.textContent = msg; c.appendChild(e); setTimeout(() => e.remove(), 3000); }
     function getHoliday(m, d) { const h = FERIADOS[m]; return h && h[d] ? h[d] : null; }
     function isReservado(date, time) { const k = `${date}-${time}`; return reservaSlots[k] || null; }
 
     function render() {
-        const year = state.year; // year removed
+        const year = state.year;
         const grid = document.getElementById('monthsGrid'); grid.innerHTML = '';
         const today = new Date(); const evMap = {};
+        console.log('[DEBUG render] Renderizando ano', year);
+        console.log('[DEBUG render] reservaSlots tem', Object.keys(reservaSlots).length, 'itens');
         state.events.forEach(e => { if (!e.date) return; const p = e.date.split('-'); if (+p[0] !== year) return; const k = `${+p[1]-1}-${+p[2]}`; if (!evMap[k]) evMap[k] = []; evMap[k].push(e); });
+        const keysInYear = Object.keys(reservaSlots).filter(k => { const r = reservaSlots[k]; return r && r.date && r.date.startsWith(year+'-'); });
+        console.log('[DEBUG render] Reservas deste ano:', keysInYear.length);
         Object.keys(reservaSlots).forEach(k => { const r = reservaSlots[k]; if (!r || !r.date) return; const p = r.date.split('-'); if (+p[0] !== year) return; const key = `${+p[1]-1}-${+p[2]}`; if (!evMap[key]) evMap[key] = []; evMap[key].push({ type: 'reserva', subtipo: r.tipo, title: `◆ ${r.nome}` }); });
         for (let m = 0; m < 12; m++) {
             const card = document.createElement('div'); card.className = 'month-card';
@@ -882,6 +924,8 @@ body {font-family:'Rajdhani',sans-serif;background:var(--dark);color:#e0e0e0;min
 
     function openPanel(day, month) {
         state.panelDay = day; state.panelMonth = month;
+        console.log('[DEBUG openPanel] Abrindo painel para:', day, month, 'de', state.year);
+        console.log('[DEBUG openPanel] reservaSlots atual:', Object.keys(reservaSlots));
         const panel = document.getElementById('sidePanel'); panel.classList.add('open');
         const year = state.year, dateObj = new Date(year, month, day);
         document.getElementById('spDay').textContent = day;
@@ -889,11 +933,16 @@ body {font-family:'Rajdhani',sans-serif;background:var(--dark);color:#e0e0e0;min
         document.getElementById('spWeekday').textContent = WEEKDAYS[dateObj.getDay()];
         const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
         const dayEvs = state.events.filter(e => e.date === ds);
+        console.log('[DEBUG openPanel] Data buscada:', ds);
+        console.log('[DEBUG openPanel] isReservado para 08:00:', isReservado(ds, '08:00'));
+        console.log('[DEBUG openPanel] isReservado para 10:00:', isReservado(ds, '10:00'));
+        console.log('[DEBUG openPanel] Todas as chaves em reservaSlots que começam com', ds, ':', Object.keys(reservaSlots).filter(k => k.startsWith(ds)));
         let html = '';
         const holiday = getHoliday(month, day);
         if (holiday) html += `<div class="sp-holiday">⬜ ${holiday}</div><div style="height:8px;"></div>`;
         TIME_SLOTS.forEach(slot => {
             const endH = SLOT_END[slot], reserva = isReservado(ds, slot), slotEvs = dayEvs.filter(e => e.time === slot);
+            console.log('[DEBUG openPanel] Slot', slot, '-> reserva:', reserva ? reserva.nome : 'nenhuma', '| eventos:', slotEvs.length);
             let cls = 'sp-slot';
             if (reserva) {
                 if (reserva.tipo === 'evento especial') cls += ' evento-especial';
@@ -981,16 +1030,25 @@ body {font-family:'Rajdhani',sans-serif;background:var(--dark);color:#e0e0e0;min
     }
 
     function finalizar() {
-        if (!reservaContext) return; const nome = document.getElementById('resNome').value.trim(), tel = document.getElementById('resTel').value.trim();
+        if (!reservaContext) { console.error('[DEBUG finalizar] reservaContext é NULL!'); return; }
+        const nome = document.getElementById('resNome').value.trim(), tel = document.getElementById('resTel').value.trim();
         const { date, time } = reservaContext; const key = `${date}-${time}`; const numJog = parseInt(document.getElementById('numJogadores').value);
+        console.log('[DEBUG finalizar] Criando reserva:', { key, nome, tel, date, time, estilo: estiloSelecionado, tipo: tipoJogoSelecionado, numJog });
         const precisa = tipoJogoSelecionado === 'privado' || tipoJogoSelecionado === 'campeonato';
         const senha = precisa ? document.getElementById('senhaPartida').value.trim() : ''; const vagas = [];
         if (numJog > 1) { for (let i = 1; i < numJog; i++) vagas.push({ numero: i, ocupado: false, nome: '' }); }
         reservaSlots[key] = { nome, tel, date, time, estilo: estiloSelecionado, tipo: tipoJogoSelecionado, numJog, senha, vagas, pago: false, timestamp: Date.now() };
+        console.log('[DEBUG finalizar] Reserva adicionada ao objeto reservaSlots. Total agora:', Object.keys(reservaSlots).length);
         save(); const p = date.split('-'); const d = +p[2], m = +p[1]-1, y = +p[0];
         document.getElementById('confirmaData').textContent = `${d} de ${MONTHS[m]} de ${y}`;
         document.getElementById('confirmaHora').textContent = `${time} às ${SLOT_END[time]}`; document.getElementById('confirmaNome').textContent = nome;
-        document.getElementById('reservaSub').textContent = ''; showStep(5); render(); if (state.panelDay !== null) openPanel(state.panelDay, state.panelMonth); toast('Horário reservado!');
+        document.getElementById('reservaSub').textContent = ''; showStep(5);
+        console.log('[DEBUG finalizar] Chamando render()...');
+        render();
+        console.log('[DEBUG finalizar] Abrindo painel do dia', state.panelDay, state.panelMonth);
+        if (state.panelDay !== null) openPanel(state.panelDay, state.panelMonth);
+        toast('Horário reservado!');
+        console.log('[DEBUG finalizar] FINALIZADO COM SUCESSO');
     }
 
     function fecharReserva() { document.getElementById('modalReserva').classList.remove('open'); reservaContext = null; if (state.panelDay !== null) openPanel(state.panelDay, state.panelMonth); }
@@ -1100,6 +1158,18 @@ body {font-family:'Rajdhani',sans-serif;background:var(--dark);color:#e0e0e0;min
         document.addEventListener('keydown', e => { if (e.key === 'Escape') { fecharReserva(); fecharModalVagas(); } });
     });
 
+    // Verificação inicial do localStorage
+    console.log('[DEBUG INIT] === VERIFICACAO INICIAL ===');
+    console.log('[DEBUG INIT] proarena_reservas existe?', !!localStorage.getItem('proarena_reservas'));
+    console.log('[DEBUG INIT] arenaPed existe?', !!localStorage.getItem('arenaPed'));
+    console.log('[DEBUG INIT] arenaCart existe?', !!localStorage.getItem('arenaCart'));
+    try {
+        var initReservas = JSON.parse(localStorage.getItem('proarena_reservas') || '{}');
+        console.log('[DEBUG INIT] reservas salvas:', Object.keys(initReservas.reservas||{}).length);
+        var initPedidos = JSON.parse(localStorage.getItem('arenaPed') || '[]');
+        console.log('[DEBUG INIT] pedidos loja:', initPedidos.length);
+    } catch(e) { console.error('[DEBUG INIT] Erro ao ler dados iniciais:', e); }
+    console.log('[DEBUG INIT] =========================');
     load(); render();
 </script>
 
@@ -1471,19 +1541,33 @@ function valRet() {
   return ok;
 }
 
-function getPedidos() { return JSON.parse(localStorage.getItem('arenaPed') || '[]'); }
+function getPedidos() {
+    var ped = JSON.parse(localStorage.getItem('arenaPed') || '[]');
+    console.log('[DEBUG getPedidos] Pedidos carregados:', ped.length);
+    if (ped.length > 0) console.log('[DEBUG getPedidos] Primeiro pedido:', ped[0].cliente, '-', ped[0].id);
+    return ped;
+}
 
-function salvarPed(p) { var px = getPedidos(); px.unshift(p); localStorage.setItem('arenaPed', JSON.stringify(px)); }
+function salvarPed(p) {
+    var px = getPedidos();
+    console.log('[DEBUG salvarPed] Salvando pedido:', p.cliente, p.id, 'Total antes:', px.length);
+    px.unshift(p);
+    localStorage.setItem('arenaPed', JSON.stringify(px));
+    var verif = JSON.parse(localStorage.getItem('arenaPed') || '[]');
+    console.log('[DEBUG salvarPed] Verificação pós-salvar:', verif.length, 'pedidos');
+}
 
 function fecharConf() { document.getElementById('modalConf').classList.remove('open'); }
 
 function finalizarCompra() {
-  if (!cart.length) return;
+  if (!cart.length) { console.warn('[DEBUG finalizarCompra] Carrinho vazio!'); return; }
+  console.log('[DEBUG finalizarCompra] Iniciando finalizacao. Carrinho:', cart.length, 'itens');
   if (!valRet()) { toast('◆ Preencha os campos!'); return; }
   var nome = document.getElementById('retNome').value.trim();
   var tel = document.getElementById('retTel').value.trim();
   var dr = document.getElementById('retData').value;
   var obs = document.getElementById('retObs').value.trim();
+  console.log('[DEBUG finalizarCompra] Dados:', { nome, tel, dr });
   var total = cart.reduce(function(s, i) { var p = getProd(i.id); return p ? s + p.preco * i.qty : s; }, 0);
   var df = new Date(dr + 'T12:00:00').toLocaleDateString('pt-BR');
   var its = cart.map(function(i) { var p = getProd(i.id); return p ? p.ico + ' ' + p.nome + ' x' + i.qty + ' = R$ ' + (p.preco * i.qty).toFixed(2) : ''; }).join('\n');
@@ -1565,6 +1649,7 @@ function renderAdmin(t) {
     if (!FISICOS.length) b.innerHTML = '<div class="ped-empty">Nenhum</div>';
   } else if (t === 'pedidos') {
     var ped = getPedidos();
+    console.log('[DEBUG admin/pedidos] Renderizando aba pedidos. Total:', ped.length);
     if (!ped.length) { b.innerHTML = '<div class="ped-empty">◆ Nenhum pedido</div>'; return; }
     b.innerHTML = ped.map(function(x, idx) {
       var dR = new Date(x.dataRetirada + 'T12:00:00').toLocaleDateString('pt-BR');
@@ -1575,7 +1660,11 @@ function renderAdmin(t) {
     '<button onclick="limparPedidos()" style="width:100%;margin-top:10px;padding:6px;background:transparent;border:1px solid var(--red);color:var(--red-light);border-radius:var(--radius-xs);cursor:pointer;font-weight:700;font-family:Rajdhani,sans-serif;font-size:11px">◆ Limpar todos</button>';
   } else if (t === 'jogos') {
     var slots = [];
+    console.log('[DEBUG admin/jogos] reservaSlots total keys:', Object.keys(reservaSlots).length);
+    console.log('[DEBUG admin/jogos] reservaSlots keys:', JSON.stringify(Object.keys(reservaSlots)));
+    console.log('[DEBUG admin/jogos] state.events:', state.events.length, 'eventos');
     Object.keys(reservaSlots).forEach(function(k) { var r = reservaSlots[k]; if (r && r.nome) { r._key = k; slots.push(r); } });
+    console.log('[DEBUG admin/jogos] slots com nome:', slots.length);
     slots.sort(function(a,b){return (a.timestamp||0)-(b.timestamp||0)});
     var total = slots.length;
     b.innerHTML = '<div style="margin-bottom:8px;font-size:12px;color:var(--sand-dark)">◆ <strong style="color:var(--green-light)">' + total + '</strong> jogo(s) registrado(s)</div>' +
